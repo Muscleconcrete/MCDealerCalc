@@ -363,7 +363,7 @@ async function fetchTaxRate(zip) {
   try {
     const res = await fetch(`https://api.taxjar.com/v2/rates/${zip}`, {
       headers: {
-        "Authorization": "Bearer PASTE_YOUR_TAXJAR_API_KEY_HERE"
+        "Authorization": "Bearer sk_live_XXXXX"
       }
     });
     const data = await res.json();
