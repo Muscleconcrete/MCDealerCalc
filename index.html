@@ -358,6 +358,7 @@ function lookupPrice(book, width, length) {
   };
 }
 function roundUpTo50(n){ return Math.ceil(n/50)*50; }
+function roundToCents(n){ return Math.round((Number(n) || 0) * 100) / 100; }
 
 const STATE_COMBINED_TAX = {
   AL: 0.095, AZ: 0.084, AR: 0.094, CA: 0.0925, CO: 0.077,
@@ -523,9 +524,9 @@ function compute() {
   const grand = roundUpTo50(subtotal + tax + travel);
 
   const depositRate = subtotal >= 10000 ? 0.07 : 0.05;
-  const deposit = roundUpTo50(subtotal * depositRate);
-  const arrival = roundUpTo50(grand * 0.40);
-  const finalPay = roundUpTo50(Math.max(0, grand - deposit - arrival));
+  const deposit = roundToCents(subtotal * depositRate);
+  const arrival = roundToCents(grand * 0.40);
+  const finalPay = roundToCents(Math.max(0, grand - deposit - arrival));
 
   document.getElementById('outMain').textContent = money(mainPrice);
   document.getElementById('outMainGrid').textContent = `${mainMeta.lowWidth}x${mainMeta.lowLength} → ${mainMeta.highWidth}x${mainMeta.highLength}${mainOversize ? ' | over 60x100 +9%' : ''}`;
