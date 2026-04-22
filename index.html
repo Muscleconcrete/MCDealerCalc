@@ -193,7 +193,7 @@
           <div><label>Customer ZIP Code</label><input id="zip" type="text" inputmode="numeric" maxlength="5" placeholder="Enter 5-digit ZIP"></div>
           <div><label>ZIP Lookup Status</label><input id="zipStatus" type="text" readonly value="Waiting for ZIP"></div>
         </div>
-        <div class="note">Travel uses live ZIP geocoding and routing when internet is available. Tax currently uses the ZIP-derived <b>state sales tax rate</b> as a prototype. Deposit is based on <b>subtotal only</b> and excludes tax and travel.</div>
+        <div class="note">Travel uses live ZIP geocoding and routing when internet is available. Tax uses a ZIP-triggered lookup with built-in fallback rates for consistency. Deposit is based on <b>subtotal only</b> and excludes tax and travel.</div>
       </div>
 
       <div class="card" style="margin-top:20px;">
@@ -276,7 +276,9 @@ const DATA = {
 };
 
 const els = Object.fromEntries([...document.querySelectorAll('input,select,textarea')].map(el => [el.id, el]));
-let zipContext = { taxRate: 0, taxState: '', travelCost: 0, travelHours: 0, warehouse: '', miles: 0, ok: false };
+let zipContext = { taxRate: 0, taxState: '', travelCost: 0, travelHours: 0, warehouse: '', miles: 0, ok: false, zip: '' };
+const zipLookupCache = new Map();
+let zipLookupToken = 0;
 
 function money(n) { return new Intl.NumberFormat('en-US', { style:'currency', currency:'USD', maximumFractionDigits:2 }).format(n || 0); }
 function ceilTo(n, step) { return Math.ceil((n || 0) / step) * step; }
@@ -427,27 +429,43 @@ Payment Schedule
 }
 
 async function fetchZipData(zip) {
-  if (!/^\d{5}$/.test(zip)) {
-    zipContext = { taxRate:0, taxState:'', travelCost:0, travelHours:0, warehouse:'', miles:0, ok:false };
+  const cleanZip = String(zip || '').trim();
+  const currentToken = ++zipLookupToken;
+
+  if (!/^\d{5}$/.test(cleanZip)) {
+    zipContext = { taxRate:0, taxState:'', travelCost:0, travelHours:0, warehouse:'', miles:0, ok:false, zip:'' };
     els.zipStatus.value = 'Enter 5-digit ZIP';
     document.getElementById('lookupDetails').textContent = 'Enter a valid ZIP code to calculate travel and tax.';
     compute();
     return;
   }
+
+  if (zipLookupCache.has(cleanZip)) {
+    zipContext = { ...zipLookupCache.get(cleanZip) };
+    els.zipStatus.value = `OK - ${zipContext.taxState || 'Tax'} / ${zipContext.warehouse || 'Saved'}`;
+    document.getElementById('lookupDetails').innerHTML = `Cached ZIP lookup loaded. Tax rate: <b>${pct(zipContext.taxRate || 0)}</b>. Travel band: <b>${money(zipContext.travelCost || 0)}</b>.`;
+    compute();
+    return;
+  }
+
   els.zipStatus.value = 'Looking up ZIP...';
-  document.getElementById('lookupDetails').textContent = 'Looking up ZIP, warehouse, route, and state tax...';
+  document.getElementById('lookupDetails').textContent = 'Looking up ZIP, warehouse, route, and tax...';
+
   try {
-    const geo = await fetch(`https://api.zippopotam.us/us/${zip}`);
+    const geo = await fetch(`https://api.zippopotam.us/us/${cleanZip}`, { cache: 'no-store' });
     if (!geo.ok) throw new Error('ZIP not found');
     const g = await geo.json();
-    const place = g.places[0];
+    const place = g.places?.[0];
+    if (!place) throw new Error('ZIP not found');
+
     const lat = parseFloat(place.latitude), lon = parseFloat(place.longitude);
     const stateAbbr = place['state abbreviation'];
-    const stateTax = DATA.stateTax[stateAbbr] ?? 0;
+    const fallbackTax = STATE_COMBINED_TAX[stateAbbr] ?? 0.07;
+    let stateTax = fallbackTax;
 
     async function routeTo(wh) {
       const url = `https://router.project-osrm.org/route/v1/driving/${wh.lon},${wh.lat};${lon},${lat}?overview=false`;
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('Routing failed');
       const d = await res.json();
       const route = d.routes?.[0];
@@ -457,9 +475,21 @@ async function fetchZipData(zip) {
       return { wh: wh.name, miles, hours };
     }
 
-    const routes = await Promise.all(DATA.warehouses.map(routeTo));
-    routes.sort((a,b)=>a.hours-b.hours);
-    const best = routes[0];
+    let best = { wh: '', miles: 0, hours: 0 };
+    try {
+      const routes = await Promise.all(DATA.warehouses.map(routeTo));
+      routes.sort((a,b)=>a.hours-b.hours);
+      best = routes[0] || best;
+    } catch (routeErr) {
+      const straightLineMiles = DATA.warehouses.map(wh => {
+        const dx = (wh.lon - lon) * Math.cos((lat + wh.lat) * Math.PI / 360);
+        const dy = wh.lat - lat;
+        const miles = Math.sqrt(dx*dx + dy*dy) * 69;
+        return { wh: wh.name, miles, hours: miles / 52 };
+      }).sort((a,b)=>a.hours-b.hours);
+      best = straightLineMiles[0] || best;
+    }
+
     let travelCost = 1700;
     if (best.hours <= 2) travelCost = 0;
     else if (best.hours <= 4) travelCost = 400;
@@ -468,11 +498,16 @@ async function fetchZipData(zip) {
     else if (best.hours <= 10) travelCost = 1250;
     else if (best.hours <= 12) travelCost = 1375;
 
-    zipContext = { taxRate: stateTax, taxState: stateAbbr, travelCost, travelHours: best.hours, warehouse: best.wh, miles: best.miles, ok:true };
-    els.zipStatus.value = `OK - ${stateAbbr} / ${best.wh}`;
-    document.getElementById('lookupDetails').innerHTML = `ZIP resolves to <b>${place['place name']}, ${stateAbbr}</b>. Closest warehouse: <b>${best.wh}</b>. Approx route: <b>${best.miles.toFixed(0)} miles</b> / <b>${best.hours.toFixed(1)} hrs</b>. State tax rate used: <b>${pct(stateTax)}</b>. Travel band: <b>${money(travelCost)}</b>.`;
+    const resolved = { taxRate: stateTax, taxState: stateAbbr, travelCost, travelHours: best.hours, warehouse: best.wh, miles: best.miles, ok:true, zip: cleanZip };
+    zipLookupCache.set(cleanZip, resolved);
+
+    if (currentToken !== zipLookupToken) return;
+    zipContext = resolved;
+    els.zipStatus.value = `OK - ${stateAbbr} / ${best.wh || 'Estimated route'}`;
+    document.getElementById('lookupDetails').innerHTML = `ZIP resolves to <b>${place['place name']}, ${stateAbbr}</b>. Closest warehouse: <b>${best.wh || 'Estimated'}</b>. Approx route: <b>${(best.miles || 0).toFixed(0)} miles</b> / <b>${(best.hours || 0).toFixed(1)} hrs</b>. Tax rate used: <b>${pct(stateTax)}</b>. Travel band: <b>${money(travelCost)}</b>.`;
   } catch (err) {
-    zipContext = { taxRate:0, taxState:'', travelCost:0, travelHours:0, warehouse:'', miles:0, ok:false };
+    if (currentToken !== zipLookupToken) return;
+    zipContext = { taxRate:0, taxState:'', travelCost:0, travelHours:0, warehouse:'', miles:0, ok:false, zip:cleanZip };
     els.zipStatus.value = 'ZIP lookup failed';
     document.getElementById('lookupDetails').textContent = 'ZIP lookup failed. Check internet connection or ZIP entry.';
   }
@@ -480,6 +515,7 @@ async function fetchZipData(zip) {
 }
 
 function compute() {
+
   const mainFooter = els.mainFooter.value;
   const mainWidth = Number(els.mainWidth.value || 0);
   const mainLength = Number(els.mainLength.value || 0);
@@ -518,10 +554,10 @@ function compute() {
   const apronPrice = roundUpTo50((DATA.aprons[els.apronType.value] || 0) * apronQty);
 
   const subtotal = roundUpTo50(mainPrice + leanPrice + add6 + liftPrice + rampPrice + apronPrice);
-  const taxRate = zipContext.taxRate || 0.07;
-  const tax = roundUpTo50(subtotal * taxRate);
-  const travel = roundUpTo50(zipContext.travelCost || 0);
-  const grand = roundUpTo50(subtotal + tax + travel);
+  const taxRate = zipContext.taxRate || 0;
+  const tax = roundToCents(subtotal * taxRate);
+  const travel = roundToCents(zipContext.travelCost || 0);
+  const grand = roundToCents(subtotal + tax + travel);
 
   const depositRate = subtotal >= 10000 ? 0.07 : 0.05;
   const deposit = roundToCents(subtotal * depositRate);
@@ -556,8 +592,22 @@ for (const el of document.querySelectorAll('input,select')) {
   el.addEventListener('input', compute);
   el.addEventListener('change', compute);
 }
+els.zip.addEventListener('input', e => {
+  const z = e.target.value.replace(/\D/g, '').slice(0,5);
+  e.target.value = z;
+  if (z.length === 5) fetchZipData(z);
+  else {
+    zipContext = { taxRate:0, taxState:'', travelCost:0, travelHours:0, warehouse:'', miles:0, ok:false, zip:z };
+    els.zipStatus.value = z.length ? 'Complete 5-digit ZIP' : 'Waiting for ZIP';
+    document.getElementById('lookupDetails').textContent = z.length ? 'Enter full 5-digit ZIP to calculate travel and tax.' : 'Enter a ZIP code to calculate travel and tax.';
+    compute();
+  }
+});
 els.zip.addEventListener('change', e => fetchZipData(e.target.value.trim()));
-els.zip.addEventListener('blur', e => fetchZipData(e.target.value.trim()));
+els.zip.addEventListener('blur', e => {
+  const z = e.target.value.trim();
+  if (/^\d{5}$/.test(z)) fetchZipData(z);
+});
 compute();
 </script>
 </body>
