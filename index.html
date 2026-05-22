@@ -134,6 +134,29 @@
   .fields-main { grid-template-columns: 1fr; }
 }
 
+  /* Footer dropdown aesthetic fix */
+  select{
+    height:60px;
+    appearance:none;
+    -webkit-appearance:none;
+    -moz-appearance:none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, #111827 50%),
+      linear-gradient(135deg, #111827 50%, transparent 50%);
+    background-position:
+      calc(100% - 22px) calc(50% - 4px),
+      calc(100% - 16px) calc(50% - 4px);
+    background-size:6px 6px, 6px 6px;
+    background-repeat:no-repeat;
+    padding-right:42px;
+    display:flex;
+    align-items:center;
+  }
+
+  input[type="number"]{
+    height:60px;
+  }
+
 </style>
 </head>
 <body>
