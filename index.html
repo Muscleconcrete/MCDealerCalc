@@ -157,12 +157,20 @@
         <div class="section-title">1. Main Building</div>
         <div class="fields fields-main">
           <div><label>Main Footer Type</label><select id="mainFooter"><option value="12x12">12x12</option><option value="12x24">12x24</option><option value="12x36">12x36</option><option value="12x48">12x48</option><option value="14x18">14x18</option></select></div>
-          <div><label>6&quot; Pad Addition</label><select id="add6"><option value="no">No</option><option value="yes">Yes</option></select></div>
-          <div><label>Gravel Base</label><select id="gravelBase"><option value="0">None</option><option value="2">2&quot; Base</option><option value="4">4&quot; Base</option></select></div>
           <div><label>Building Width (ft)</label><input id="mainWidth" type="number" min="20" step="1" value="30"></div>
           <div><label>Building Length (ft)</label><input id="mainLength" type="number" min="25" step="1" value="40"></div>
         </div>
         <div class="note">Main building uses the selected price book. 6&quot; addition is a separate add-on.</div>
+      </div>
+
+      <div class="card" style="margin-top:20px;">
+        <div class="section-title">Reinforcement</div>
+        <div class="fields fields-main">
+          <div><label>6&quot; Pad Addition</label><select id="add6"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div><label>Wire Mesh</label><select id="wireMesh"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div><label>Rebar Mat</label><select id="rebarMat"><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div><label>Gravel Base</label><select id="gravelBase"><option value="0">None</option><option value="2">2&quot; Base</option><option value="4">4&quot; Base</option></select></div>
+        </div>
       </div>
 
       <div class="card" style="margin-top:20px;">
@@ -231,13 +239,15 @@
           <tr><td class="small">Lean-to grid used</td><td id="outLeanGrid" class="small">-</td></tr>
           <tr><td>6&quot; Addition</td><td id="out6">$0</td></tr>
           <tr><td>Gravel Base</td><td id="outGravel">$0</td></tr>
+          <tr><td id="outWireLabel">Wire Mesh</td><td id="outWire">$0</td></tr>
+          <tr><td>Rebar Mat</td><td id="outRebarMat">$0</td></tr>
           <tr><td>Lift Reinforcement</td><td id="outLift">$0</td></tr>
           <tr><td>Roll-Up Door Ramps</td><td id="outRamp">$0</td></tr>
           <tr><td>Walk-In Door Aprons</td><td id="outApron">$0</td></tr>
           <tr class="subtotal"><td>Subtotal (before tax & travel)</td><td id="outSubtotal">$0</td></tr>
           <tr class="tax"><td>Tax</td><td id="outTax">$0</td></tr>
           <tr class="travel"><td>Travel</td><td id="outTravel">$0</td></tr>
-          <tr class="grand"><td>Grand Total (rounded up)</td><td id="outGrand">$0</td></tr>
+          <tr class="grand"><td>Grand Total</td><td id="outGrand">$0</td></tr>
         </table>
 
         <div class="summary-block payments">
@@ -536,6 +546,7 @@ function compute() {
   const mainWidth = Number(els.mainWidth.value || 0);
   const mainLength = Number(els.mainLength.value || 0);
   const mainMeta = lookupPrice(DATA.main[mainFooter], mainWidth, mainLength);
+  let totalConcreteSqft = Math.max(0, mainWidth * mainLength);
 
   let mainPrice = roundUpTo50(mainMeta.price);
   const mainOversize = mainWidth > 60 || mainLength > 100;
@@ -553,7 +564,8 @@ function compute() {
   const gravelTruckCount = gravelCoveragePerTruck > 0 ? Math.ceil((mainWidth * mainLength) / gravelCoveragePerTruck) : 0;
   const gravelTruckCost = gravelTruckCount * 1000;
   const gravelBaseCost = gravelDepth > 0 ? (mainWidth * mainLength) * 0.15 : 0;
-  const gravelPrice = gravelDepth > 0 ? gravelTruckCost + gravelBaseCost : 0;
+  const gravelDepthAddOn = gravelDepth === 4 ? 575 : gravelDepth === 2 ? 375 : 0;
+  const gravelPrice = gravelDepth > 0 ? gravelTruckCost + gravelBaseCost + gravelDepthAddOn : 0;
 
   let leanPrice = 0;
   let leanMetaList = [];
@@ -562,6 +574,7 @@ function compute() {
       const leanFooter = els[`leanFooter${i}`].value;
       const leanWidth = Number(els[`leanWidth${i}`].value || 0);
       const leanLength = Number(els[`leanLength${i}`].value || 0);
+      totalConcreteSqft += Math.max(0, leanWidth * leanLength);
       const baseMeta = lookupPrice(DATA.lean['12x12'], leanWidth, leanLength);
       const adjustedLeanPrice = roundUpTo50(getLeanFooterPrice(baseMeta.price, leanFooter, leanWidth, leanLength));
 
@@ -570,13 +583,22 @@ function compute() {
     }
   }
 
+  const wireMeshSelected = (document.getElementById('wireMesh') || {}).value === 'yes';
+  const wireMeshRolls = wireMeshSelected ? Math.ceil(totalConcreteSqft / 750) : 0;
+  const wireMeshRate = totalConcreteSqft > 1550 ? 650 : 715;
+  const wireMeshPrice = wireMeshRolls * wireMeshRate;
+
+  const rebarMatSelected = (document.getElementById('rebarMat') || {}).value === 'yes';
+  const rebarMatRate = totalConcreteSqft > 2000 ? 1.35 : 1.65;
+  const rebarMatPrice = rebarMatSelected ? roundUpTo50(totalConcreteSqft * rebarMatRate) : 0;
+
   const liftPrice = roundUpTo50(Math.max(0, Math.min(20, Number(els.liftQty.value || 0))) * 350);
   const rampQty = Math.max(0, Math.min(20, Number(els.rampQty.value || 0)));
   const rampPrice = roundUpTo50((DATA.ramps[els.rampType.value] || 0) * rampQty);
   const apronQty = Math.max(0, Math.min(20, Number(els.apronQty.value || 0)));
   const apronPrice = roundUpTo50((DATA.aprons[els.apronType.value] || 0) * apronQty);
 
-  const subtotal = roundUpTo50(mainPrice + leanPrice + add6 + gravelPrice + liftPrice + rampPrice + apronPrice);
+  const subtotal = roundUpTo50(mainPrice + leanPrice + add6 + gravelPrice + wireMeshPrice + rebarMatPrice + liftPrice + rampPrice + apronPrice);
   const taxRate = zipContext.taxRate || 0;
   const tax = roundToCents(subtotal * taxRate);
   const travel = roundToCents(zipContext.travelCost || 0);
@@ -593,6 +615,9 @@ function compute() {
   document.getElementById('outLeanGrid').textContent = leanMetaList.length ? leanMetaList.join(' ; ') : '-';
   document.getElementById('out6').textContent = money(add6);
   document.getElementById('outGravel').textContent = money(gravelPrice);
+  document.getElementById('outWireLabel').textContent = 'Wire Mesh';
+  document.getElementById('outWire').textContent = money(wireMeshPrice);
+  document.getElementById('outRebarMat').textContent = money(rebarMatPrice);
   document.getElementById('outLift').textContent = money(liftPrice);
   document.getElementById('outRamp').textContent = money(rampPrice);
   document.getElementById('outApron').textContent = money(apronPrice);
