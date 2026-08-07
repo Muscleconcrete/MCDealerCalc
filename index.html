@@ -741,13 +741,13 @@ function getLeanFooterPrice(baseLeanPrice, leanFooter, leanWidth, leanLength) {
   const main1212Meta = lookupPrice(DATA.main['12x12'], normalizedWidth, normalizedLength);
 
   if (leanFooter === '12x12') {
-    return roundUpTo50(Math.max(0, baseLeanPrice + 150));
+    return round2(Math.max(0, baseLeanPrice + 150));
   }
 
   if (leanFooter === '14x18') {
     const main1224Meta = lookupPrice(DATA.main['12x24'], normalizedWidth, normalizedLength);
     const thirtyEightPctJump = ((main1224Meta?.price || 0) - (main1212Meta?.price || 0)) * 0.38;
-    return roundUpTo50(Math.max(0, (baseLeanPrice + thirtyEightPctJump) * 0.95));
+    return round2(Math.max(0, (baseLeanPrice + thirtyEightPctJump) * 0.95));
   }
 
   const mainTargetMeta = lookupPrice(DATA.main[leanFooter], normalizedWidth, normalizedLength);
@@ -773,7 +773,7 @@ if (['12x24','12x42','12x48'].includes(leanFooter)) {
     finalLeanPrice *= 0.85;
   }
 
-  return roundUpTo50(Math.max(0, finalLeanPrice));
+  return round2(Math.max(0, finalLeanPrice));
 }
 
 function buildContractText(grand, deposit, arrival, final, depositRate) {
@@ -875,15 +875,15 @@ function compute() {
   const mainLength = Number(els.mainLength.value || 0);
   const mainMeta = lookupPrice(DATA.main[mainFooter], mainWidth, mainLength);
 
-  let mainPrice = roundUpTo50(mainMeta.price);
+  let mainPrice = round2(mainMeta.price);
   const mainOversize = mainWidth > 60 || mainLength > 100;
   if (mainOversize) {
-    mainPrice = roundUpTo50(mainPrice * 1.09);
+    mainPrice = round2(mainPrice * 1.09);
   }
 
   let add6 = 0;
   if (els.add6.value === 'yes') {
-    add6 = roundUpTo50(lookupPrice(DATA.add6, mainWidth, mainLength).price);
+    add6 = round2(lookupPrice(DATA.add6, mainWidth, mainLength).price);
   }
 
   let totalPadSqft = Math.max(0, mainWidth * mainLength);
@@ -899,7 +899,7 @@ function compute() {
       const baseMeta = lookupPrice(DATA.lean['12x12'], leanWidth, leanLength);
       let rawLean = getLeanFooterPrice(baseMeta.price, leanFooter, leanWidth, leanLength);
       if (leanStyle === 'enclosed') rawLean *= 1.10;
-      const adjustedLeanPrice = roundUpTo50(rawLean);
+      const adjustedLeanPrice = round2(rawLean);
 
       leanPrice += adjustedLeanPrice;
       totalPadSqft += Math.max(0, leanWidth * leanLength);
@@ -922,9 +922,9 @@ function compute() {
 
   const rebarMatSelected = (document.getElementById('rebarMat') || {}).value === 'yes';
   const rebarMatRate = totalPadSqft > 2000 ? 1.35 : 1.65;
-  const rebarMatPrice = rebarMatSelected ? ceilTo(totalPadSqft * rebarMatRate, 50) : 0;
+  const rebarMatPrice = rebarMatSelected ? round2(totalPadSqft * rebarMatRate) : 0;
 
-  const liftPrice = roundUpTo50(Math.max(0, Math.min(20, Number(els.liftQty.value || 0))) * 350);
+  const liftPrice = round2(Math.max(0, Math.min(20, Number(els.liftQty.value || 0))) * 350);
   const rampQty = Math.max(0, Math.min(20, Number(els.rampQty.value || 0)));
   const rampPrice = (DATA.ramps[els.rampType.value] || 0) * rampQty;
 
